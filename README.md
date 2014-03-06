@@ -9,6 +9,6 @@ License: GPL (http://www.gnu.org/licenses/gpl.html)
 
 Author : Alexander Schreyer, www.alexschreyer.net, mail@alexschreyer.net
 
-Website: http://www.alexschreyer.net/projects/
+Website: http://www.alexschreyer.net/projects/centroid-and-area-properties-plugin-for-sketchup/
 
 Description : Get accurate face properties: Centroid, Area, Moment of Inertia and Radius of Gyration
