@@ -11,12 +11,12 @@ License:        GPL (http://www.gnu.org/licenses/gpl.html)
 
 Author :        Alexander Schreyer, www.alexschreyer.net, mail@alexschreyer.net
 
-Website:        http://www.alexschreyer.net/projects/
+Website:        http://www.alexschreyer.net/projects/centroid-and-area-properties-plugin-for-sketchup/
 
 Name :          Face Centroid
 
-Version:        1.2
-Date :          2/19/2014
+Version:        1.3
+Date :          3/5/2014
 
 Description :   Draws a construction point at the centroid of a shape that lies flat
                 on the X-Y plane (the ground). Also calculates
@@ -46,6 +46,11 @@ History:        1.0 (10/11/2008)
                 - Results uses multiline textbox for simplicity
                 - Properties display now displays model units
                 - Dialog for option to draw crosshairs
+                1.3 (3/5/2014):
+                - Added limit to only use 10 faces at a time
+                - Removed the need for flipping of faces
+                - No more @mod variable
+                - Better unit handling
 
 Issues:         - For faces with internal openings it is necessary to draw connecting line between each
                   opening and the perimeter
@@ -68,8 +73,8 @@ require 'sketchup'
 module AS_FaceCentroid
 
 
-    # Get the active model
-    @mod = Sketchup.active_model
+    # Use a counter for number of selected faces
+    @count = 0
   
     
     # =========================================
@@ -150,36 +155,37 @@ module AS_FaceCentroid
             a_face.edges.each do |edge|
               perim += edge.length
             end
+                        
+            # Get the unit label
+            unit = Sketchup.format_area(1)[/[a-zA-Z]+/]              
             
-            # Figure out the unit system
-            fa = Sketchup.format_area(area)
-            unit = "Inches"
-            mult = 1.0            
-            if fa.include? "Meters"
-               unit = "Meters"
-               mult = 39.3700787
-            elsif fa.include? "Centimeters"
-               unit = "Centimeters"
-               mult = 0.393700787  
-            elsif fa.include? "Millimeters"
-               unit = "Millimeters"
-               mult = 0.0393700787 
-            elsif fa.include? "Feet"
-               unit = "Feet"
-               mult = 12               
-            end
+            # Figure out the unit system       
+            # Get the inch conversion factor - not precise enough!!!
+            # mult = 1 / ( Sketchup.format_length(1)[/([0-9]+)(.|,)([0-9]+)*/].to_f )
+            if (['ft', 'feet', 'foot'].include? unit.downcase)
+                mult = 12.0
+            elsif (['m', 'meters', 'meter'].include? unit.downcase)
+                mult = 1 / 2.54 * 100
+            elsif (['cm', 'centimeters', 'centimeter'].include? unit.downcase)
+                mult = 1 / 2.54
+            elsif (['mm', 'millimeters', 'millimeter'].include? unit.downcase)
+                mult = 1 / 25.4           
+            else
+                mult = 1.0
+                unit = 'in'
+            end                                  
             
             # Now display values in model units
             f_values =  "Face properties (in current model units):\n\n" +
                         "Centroid: " + sprintf( "%.4f, %.4f, %.4f (x,y,z %s from origin)" , 
                             centroid.x / mult , centroid.y / mult, centroid.z / mult, unit ) + "\n" +
-                        "Area = " + sprintf( "%.4f %s^2" , area / mult**2 , unit ) + "\n" +
-                        "Perimeter = " + sprintf( "%.4f %s" , perim / mult , unit ) + "\n" +
-                        "Ix = " + sprintf( "%.4f %s^4" , i_x / mult**4 , unit ) + "\n" +
-                        "Iy = " + sprintf( "%.4f %s^4" , i_y / mult**4 , unit ) + "\n" +
-                        "Ixy = " + sprintf( "%.4f %s^4" , i_xy / mult**4 , unit ) + "\n" +
-                        "rx = " + sprintf( "%.4f %s" , rgyr_x / mult , unit ) + "\n" +
-                        "ry = " + sprintf( "%.4f %s" , rgyr_y / mult , unit ) + "\n\n" +
+                        "Area = " + sprintf( "%.4f %s^2" , area.abs / mult**2 , unit ) + "\n" +
+                        "Perimeter = " + sprintf( "%.4f %s" , perim.abs / mult , unit ) + "\n" +
+                        "Ix = " + sprintf( "%.4f %s^4" , i_x.abs / mult**4 , unit ) + "\n" +
+                        "Iy = " + sprintf( "%.4f %s^4" , i_y.abs / mult**4 , unit ) + "\n" +
+                        "Ixy = " + sprintf( "%.4f %s^4" , i_xy.abs / mult**4 , unit ) + "\n" +
+                        "rx = " + sprintf( "%.4f %s" , rgyr_x.abs / mult , unit ) + "\n" +
+                        "ry = " + sprintf( "%.4f %s" , rgyr_y.abs / mult , unit ) + "\n\n" +
                         "Copy values now if needed!"
             UI.messagebox f_values, MB_MULTILINE, "Face Properties"
             
@@ -196,58 +202,67 @@ module AS_FaceCentroid
     
     def self.get_centroid
     
-        # Get currently selected objects
-        sel = @mod.selection
-        vector = Geom::Vector3d.new
+        if @count > 10 then
         
-        if sel.empty?
+            UI.messagebox "You have #{@count} faces selected. For efficiency, this tool only works with max. 10 selected faces at a time."
         
-            UI.messagebox 'Please select at least one face.'
-            
         else
-        
-        # Do this for each face in the selection set seperately
-        sel.each {|e|
-        
-            if e.is_a? Sketchup::Face
-          
-                # Flip upside-down face up first and don't use non-flat planes
-                if e.normal.samedirection? [0,0,-1]
-                    UI.messagebox "I need to flip this face (white side up) for a correct calculation."
-                    e.reverse!
-                elsif !e.normal.samedirection? [0,0,1]
-                    UI.messagebox "Sorry, but the face must be parallel to the ground for this calculation."
-                    break
-                end
+    
+            # Get currently selected objects
+            mod = Sketchup.active_model
+            sel = mod.selection
+            vector = Geom::Vector3d.new
+            
+            if sel.empty?
+            
+                UI.messagebox 'Please select at least one face.'
                 
-                # Calculate centroid
-                centroid = calculate_centroid(e)
-                
-                # Draw a construction point and axis lines at centroid
-                if (centroid != false) 
-                  
-                    click = UI.messagebox "Draw crosshair at centroid location?", MB_YESNO
-                    if (click == 6) 
-                
-                        # Get a size reference for lengths: 20% of diagonal
-                        len = e.bounds.diagonal / 5
+            else
+            
+            # Do this for each face in the selection set seperately
+            sel.each {|e|
+            
+                if e.is_a? Sketchup::Face
+
+                    # Skip non-flat surfaces
+                    if !e.normal.parallel? [0,0,1]
+                    
+                        UI.messagebox "Skipping a face that is not parallel to the ground."
+
+                    else
+                    
+                        # Calculate centroid
+                        centroid = calculate_centroid(e)
                         
-                        # Group construction geometry
-                        @mod.start_operation 'Draw centroid'
-                        group = @mod.entities.add_group
-                        group.entities.add_cpoint(centroid)
-                        group.entities.add_cline centroid.offset(X_AXIS, -len), centroid.offset(X_AXIS, len)
-                        group.entities.add_cline centroid.offset(Y_AXIS, -len), centroid.offset(Y_AXIS, len)
-                        @mod.commit_operation
+                        # Draw a construction point and axis lines at centroid
+                        if (centroid != false) 
+                          
+                            click = UI.messagebox "Draw crosshair at centroid location?", MB_YESNO
+                            if (click == 6) 
+                        
+                                # Get a size reference for lengths: 20% of diagonal
+                                len = e.bounds.diagonal / 5
+                                
+                                # Group construction geometry
+                                mod.start_operation 'Draw centroid'
+                                group = mod.entities.add_group
+                                group.entities.add_cpoint(centroid)
+                                group.entities.add_cline centroid.offset(X_AXIS, -len), centroid.offset(X_AXIS, len)
+                                group.entities.add_cline centroid.offset(Y_AXIS, -len), centroid.offset(Y_AXIS, len)
+                                mod.commit_operation
+                            
+                            end
+                            
+                        end
                     
                     end
                     
                 end
-                
+              
+            }
+            
             end
-          
-        }
-        
+            
         end
     
     end # get_centroid
@@ -258,12 +273,18 @@ module AS_FaceCentroid
     
     def self.contains_face
     # Check if face is in selection set and flat on the ground - for context menu
+    # Also returns number of selected faces
     
         contains = false
-        @mod.selection.each {|e|
-            contains = true if ((e.is_a? Sketchup::Face) and (e.normal.parallel? [0,0,1]))
+        @count = 0
+        mod = Sketchup.active_model
+        mod.selection.each {|e|
+            if ((e.is_a? Sketchup::Face) and (e.normal.parallel? [0,0,1]))
+                contains = true 
+                @count = @count + 1
+            end
         }
-        return contains
+        return contains        
       
     end # contains_face   
     
