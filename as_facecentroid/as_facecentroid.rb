@@ -1,5 +1,6 @@
 # =========================================
 # Main file for Face Centroid
+# Copyright Alexander C. Schreyer
 # =========================================
 
 
@@ -14,8 +15,8 @@ module AS_Extensions
   module AS_FaceCentroid
 
 
-      # Use a counter for number of selected faces
-      @count = 0
+      # General variables
+      @f_values = ''
 
 
       # =========================================
@@ -29,12 +30,12 @@ module AS_Extensions
 
           if (vertices.length < 3)
 
-              UI.messagebox "Awfully sorry. Can't calculate centroid.\nPlease select at least one valid face."
+              UI.messagebox "Invalid face detected. Can't calculate centroid for this face."
               return false
 
           elsif (a_face.vertices.length != a_face.outer_loop.vertices.length)
 
-              UI.messagebox "For faces with internal holes it is necessary to draw a connecting line between each hole and the face perimeter before using this tool."
+              UI.messagebox "Face with internal hole detected. Draw a single connecting line between each hole and the face perimeter before using this tool."
               return false
 
           else
@@ -97,12 +98,10 @@ module AS_Extensions
                 perim += edge.length
               end
 
-              # Get the unit label
+              # Get the unit label (base on area format because of face)
               unit = Sketchup.format_area(1)[/[a-zA-Z]+/]
 
               # Figure out the unit system
-              # Get the inch conversion factor - not precise enough!!!
-              # mult = 1 / ( Sketchup.format_length(1)[/([0-9]+)(.|,)([0-9]+)*/].to_f )
               if (['ft', 'feet', 'foot'].include? unit.downcase)
                   mult = 12.0
               elsif (['m', 'meters', 'meter'].include? unit.downcase)
@@ -116,19 +115,17 @@ module AS_Extensions
                   unit = 'in'
               end
 
-              # Now display values in model units
-              f_values =  "Face properties (in current model units):\n\n" +
-                          "Centroid: " + sprintf( "%.4f, %.4f, %.4f (x,y,z %s from origin)" ,
-                              centroid.x / mult , centroid.y / mult, centroid.z / mult, unit ) + "\n" +
-                          "Area = " + sprintf( "%.4f %s^2" , area.abs / mult**2 , unit ) + "\n" +
-                          "Perimeter = " + sprintf( "%.4f %s" , perim.abs / mult , unit ) + "\n" +
-                          "Ix = " + sprintf( "%.4f %s^4" , i_x.abs / mult**4 , unit ) + "\n" +
-                          "Iy = " + sprintf( "%.4f %s^4" , i_y.abs / mult**4 , unit ) + "\n" +
-                          "Ixy = " + sprintf( "%.4f %s^4" , i_xy.abs / mult**4 , unit ) + "\n" +
-                          "rx = " + sprintf( "%.4f %s" , rgyr_x.abs / mult , unit ) + "\n" +
-                          "ry = " + sprintf( "%.4f %s" , rgyr_y.abs / mult , unit ) + "\n\n" +
-                          "Copy values now if needed!"
-              UI.messagebox f_values, MB_MULTILINE, "Face Properties"
+              # Now update values in model units
+              @f_values =   "Face properties (in current model units):\n\n" +
+                            "Centroid = " + sprintf( "[%.4f,%.4f,%.4f] (x,y,z %s from origin)" ,
+                                centroid.x / mult , centroid.y / mult, centroid.z / mult, unit ) + "\n" +
+                            "Area = " + sprintf( "%.4f %s^2" , area.abs / mult**2 , unit ) + "\n" +
+                            "Perimeter = " + sprintf( "%.4f %s" , perim.abs / mult , unit ) + "\n" +
+                            "Ix = " + sprintf( "%.4f %s^4" , i_x.abs / mult**4 , unit ) + "\n" +
+                            "Iy = " + sprintf( "%.4f %s^4" , i_y.abs / mult**4 , unit ) + "\n" +
+                            "Ixy = " + sprintf( "%.4f %s^4" , i_xy.abs / mult**4 , unit ) + "\n" +
+                            "rx = " + sprintf( "%.4f %s" , rgyr_x.abs / mult , unit ) + "\n" +
+                            "ry = " + sprintf( "%.4f %s" , rgyr_y.abs / mult , unit )
 
               # Send the centroid back as a 3D point
               return centroid
@@ -142,67 +139,72 @@ module AS_Extensions
 
 
       def self.get_centroid
+      
+          mod = Sketchup.active_model
+          faces = mod.selection.grep(Sketchup::Face)
 
-          if @count > 10 then
+          if faces.empty?
 
-              UI.messagebox "You have #{@count} faces selected. For efficiency, this tool only works with max. 10 selected faces at a time."
+              UI.messagebox "Select at least one ungrouped face to use this tool."
+                  
+          else if faces.length > 50 then
+
+              UI.messagebox "You have #{faces.length} faces selected. For efficiency, this tool only works with max. 50 selected faces at a time. Reduce selection and restart."
 
           else
-
-              # Get currently selected objects
-              mod = Sketchup.active_model
-              sel = mod.selection
-              vector = Geom::Vector3d.new
-
-              if sel.empty?
-
-                  UI.messagebox 'Please select at least one face.'
-
-              else
+          
+              drawres = UI.messagebox "Draw crosshairs at centroid locations?", MB_YESNO
+              nonplane = 0
 
               # Do this for each face in the selection set seperately
-              sel.each {|e|
+              faces.each { |e|
 
-                  if e.is_a? Sketchup::Face
+                  # Skip non-flat surfaces
+                  if !e.normal.parallel? [0,0,1]
+                  
+                      nonplane = nonplane + 1
 
-                      # Skip non-flat surfaces
-                      if !e.normal.parallel? [0,0,1]
+                  else
 
-                          UI.messagebox "Skipping a face that is not parallel to the ground."
+                      # Calculate centroid
+                      centroid = calculate_centroid(e)
 
-                      else
+                      # Draw information, a construction point and axis lines at centroid
+                      if (centroid != false)
+                      
+                          mod.start_operation 'Draw centroid'
+                          clayer = mod.layers.add('Centroids')
+                          
+                          # Get a size reference for lengths: 20% of diagonal
+                          len = e.bounds.diagonal / 5
+                      
+                          # Draw text information
+                          txt = mod.entities.add_text( @f_values, centroid, [0,0,len] )
+                          txt.layer = clayer
+                          
+                          # Draw crosshairs
+                          if drawres == 6
 
-                          # Calculate centroid
-                          centroid = calculate_centroid(e)
-
-                          # Draw a construction point and axis lines at centroid
-                          if (centroid != false)
-
-                              click = UI.messagebox "Draw crosshair at centroid location?", MB_YESNO
-                              if (click == 6)
-
-                                  # Get a size reference for lengths: 20% of diagonal
-                                  len = e.bounds.diagonal / 5
-
-                                  # Group construction geometry
-                                  mod.start_operation 'Draw centroid'
-                                  group = mod.entities.add_group
-                                  group.entities.add_cpoint(centroid)
-                                  group.entities.add_cline centroid.offset(X_AXIS, -len), centroid.offset(X_AXIS, len)
-                                  group.entities.add_cline centroid.offset(Y_AXIS, -len), centroid.offset(Y_AXIS, len)
-                                  mod.commit_operation
-
-                              end
+                              # Group construction geometry and create on own layer
+                              group = mod.entities.add_group
+                              group.layer = clayer
+                              group.entities.add_cpoint(centroid)
+                              group.entities.add_cline centroid.offset(X_AXIS, -len), centroid.offset(X_AXIS, len)
+                              group.entities.add_cline centroid.offset(Y_AXIS, -len), centroid.offset(Y_AXIS, len)
 
                           end
+                          
+                          mod.commit_operation
 
                       end
 
                   end
 
               }
-
+              
               end
+              
+              UI.messagebox "This tool only works on faces that are parallel to the ground (the red-green or x-y plane). Skipped #{nonplane.to_s} faces that were not parallel to the ground." if nonplane > 0
 
           end
 
@@ -210,36 +212,50 @@ module AS_Extensions
 
 
       # =========================================
+      
+      
+      def self.show_url( title , url )
+      # Show website either as a WebDialog or HtmlDialog
 
+        if Sketchup.version.to_f < 17 then   # Use old dialog
+          @dlg = UI::WebDialog.new( title , true ,
+            title.gsub(/\s+/, "_") , 1000 , 600 , 100 , 100 , true);
+          @dlg.navigation_buttons_enabled = false
+          @dlg.set_url( url )
+          @dlg.show      
+        else   #Use new dialog
+          @dlg = UI::HtmlDialog.new( { :dialog_title => title, :width => 1000, :height => 600,
+            :style => UI::HtmlDialog::STYLE_DIALOG, :preferences_key => title.gsub(/\s+/, "_") } )
+          @dlg.set_url( url )
+          @dlg.show
+          @dlg.center
+        end  
 
-      def self.contains_face
-      # Check if face is in selection set and flat on the ground - for context menu
-      # Also returns number of selected faces
+      end  
 
-          contains = false
-          @count = 0
-          mod = Sketchup.active_model
-          mod.selection.each {|e|
-              if ((e.is_a? Sketchup::Face) and (e.normal.parallel? [0,0,1]))
-                  contains = true
-                  @count = @count + 1
-              end
-          }
-          return contains
+      def self.show_help
+      # Show the website as an About dialog
 
-      end # contains_face
+        show_url( "#{@exttitle} - Help" , 'https://alexschreyer.net/projects/centroid-and-area-properties-plugin-for-sketchup/' )
 
-
-      # =========================================
+      end # show_help
+    
+    
+      # =========================================    
 
 
       # Load plugin at startup and add menu items to context menu
       if !file_loaded?(__FILE__)
+      
+          # Add to the tools menu
+          tmenu = UI.menu("Tools").add_submenu( @exttitle )
+          tmenu.add_item("Get Face Properties") { self.get_centroid }
+          tmenu.add_item("Help") { self.show_help }      
 
           # Add to the context menu
           UI.add_context_menu_handler do |menu|
-              if( AS_FaceCentroid::contains_face )
-                  menu.add_item("Get Face Properties") { AS_FaceCentroid::get_centroid }
+              if( !Sketchup.active_model.selection.grep(Sketchup::Face).empty? )
+                  menu.add_item("Get Face Properties") { self.get_centroid }
               end
           end
 

@@ -1,6 +1,6 @@
 =begin
 
-Copyright 2008-2015, Alexander C. Schreyer
+Copyright 2008-2020, Alexander C. Schreyer
 All Rights Reserved
 
 THIS SOFTWARE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED WARRANTIES,
@@ -15,8 +15,8 @@ Website:        http://www.alexschreyer.net/projects/centroid-and-area-propertie
 
 Name :          Face Centroid
 
-Version:        1.3
-Date :          3/5/2014
+Version:        1.4
+Date :          5/6/2020
 
 Description :   Draws a construction point at the centroid of a shape that lies flat
                 on the X-Y plane (the ground). Also calculates
@@ -51,8 +51,14 @@ History:        1.0 (10/11/2008)
                 - Removed the need for flipping of faces
                 - No more @mod variable
                 - Better unit handling
-                TBD:
+                1.4 (5/6/2020):
                 - Code cleanup
+                - Fixed loader code
+                - Added menu items to Tool menu
+                - Added Help link to site
+                - Now draws face information as text
+                - Face limit increased to 50 (due to new speed)
+                - Adds text and crosshairs to new layer
 
 Issues:         - For faces with internal openings it is necessary to draw connecting line between each
                   opening and the perimeter
@@ -63,22 +69,40 @@ Issues:         - For faces with internal openings it is necessary to draw conne
 =end
 
 
-# =========================================
+# ========================
 
 
-require 'sketchup'
-require 'extensions'
+require 'sketchup.rb'
+require 'extensions.rb'
 
 
-# =========================================
+# ========================
 
 
-as_facecentroid = SketchupExtension.new "Face Centroid", "as_facecentroid/as_facecentroid.rb"
-as_facecentroid.copyright= 'Copyright 2008-2014 Alexander C. Schreyer'
-as_facecentroid.creator= 'Alexander C. Schreyer, www.alexschreyer.net'
-as_facecentroid.version = '1.3'
-as_facecentroid.description = "Tool to accurately calculate the centroid and other area properties (A,I,r) of a face."
-Sketchup.register_extension as_facecentroid, true
+module AS_Extensions
+
+  module AS_FaceCentroid
+  
+    @extversion           = "1.4"
+    @exttitle             = "Face Centroid"
+    @extname              = "as_facecentroid"
+    
+    @extdir = File.dirname(__FILE__)
+    @extdir.force_encoding('UTF-8') if @extdir.respond_to?(:force_encoding)
+    
+    loader = File.join( @extdir , @extname , "as_facecentroid.rb" )
+   
+    extension             = SketchupExtension.new( @exttitle , loader )
+    extension.copyright   = "Copyright 2008-#{Time.now.year} Alexander C. Schreyer"
+    extension.creator     = "Alexander C. Schreyer, www.alexschreyer.net"
+    extension.version     = @extversion
+    extension.description = "Tool to accurately calculate the centroid and other area properties (A,I,r) of any polygonal face."
+    
+    Sketchup.register_extension( extension , true )
+         
+  end  # module AS_FaceCentroid
+  
+end  # module AS_Extensions
 
 
-# =========================================
+# ========================
