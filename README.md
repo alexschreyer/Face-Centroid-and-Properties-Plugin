@@ -1,4 +1,4 @@
-Face-Centroid-and-Properties-Plugin
+Face Centroid and Properties Extension
 ===================================
 
 Copyright 2014-2023, Alexander C. Schreyer All rights reserved
