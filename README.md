@@ -1,4 +1,4 @@
-Face Centroid and Properties Extension
+Face Centroid and Properties Extension for SketchUp
 ===================================
 
 Copyright 2014-2023, Alexander C. Schreyer All rights reserved
